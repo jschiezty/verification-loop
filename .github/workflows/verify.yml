@@ -1,0 +1,177 @@
+# ILLUSTRATIVE, NOT A DROP-IN POLICY.
+#
+# This workflow verifies the demo app in this kit. It shows the shape:
+# fast checks first, risk read from the base branch, a journey test that
+# runs locally by default, evidence tied to the exact commit tested.
+# Copy the ideas, not the file. Before using any of it in a real repository:
+#   - replace the demo commands with your own (see docs/adapting.md)
+#   - decide which jobs are required checks in your branch rules or rulesets;
+#     a workflow file on its own gates nothing
+#   - protect this file and your policy with code-owner review or an
+#     org-level required workflow; a PR can edit the workflow it runs under
+#
+# Spend: everything here runs on standard GitHub-hosted Linux runners.
+# Concurrency cancels superseded runs, path filters skip docs-only changes,
+# and every job has a timeout. Nothing here creates cloud resources.
+
+name: verify
+
+on:
+  pull_request:
+    paths-ignore: ['**/*.md', 'docs/**']
+  merge_group: # needed if the default branch uses a merge queue
+  push:
+    branches: [main]
+  deployment_status: # runs the journey against a preview URL, if your host reports one
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # For pull_request, github.sha is a merge of the PR into its base, not the
+  # PR head. vloop records the commit actually checked out; this records the
+  # PR head as well so the two can be told apart.
+  VLOOP_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  risk:
+    # Classify the change with the policy and tool from the BASE branch, so a
+    # PR cannot loosen the rules it is judged by. The result is advisory
+    # output for reviewers and for later jobs; enforcing "human-review" still
+    # needs a ruleset (for example code-owner review on the paths in the policy).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tier: ${{ steps.classify.outputs.tier }}
+      requires: ${{ steps.classify.outputs.requires }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Read policy and tool from the base branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/base"
+          git show "origin/$BASE_REF:policy/example.risk.json" > "$RUNNER_TEMP/base/policy.json"
+          git show "origin/$BASE_REF:bin/vloop.mjs" > "$RUNNER_TEMP/base/vloop.mjs"
+      - name: Classify
+        id: classify
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          node "$RUNNER_TEMP/base/vloop.mjs" risk --policy "$RUNNER_TEMP/base/policy.json" --base "origin/$BASE_REF" --head HEAD --json > risk.json
+          echo "tier=$(node -p 'require("./risk.json").tier')" >> "$GITHUB_OUTPUT"
+          echo "requires=$(node -p 'require("./risk.json").requires.join(",")')" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Risk tier: $(node -p 'require("./risk.json").tier')"
+            echo "Requires: $(node -p 'require("./risk.json").requires.join(", ")')"
+            echo "Because of: $(node -p 'require("./risk.json").reasons.slice(0,10).join(", ")')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  unit:
+    if: github.event_name != 'deployment_status'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Kit tests
+        run: node bin/vloop.mjs evidence run --check kit -- node --test test/
+      - name: Demo unit and property tests
+        run: node bin/vloop.mjs evidence run --check unit -- node --test demo/test/
+      - name: Evidence summary
+        if: always()
+        run: node bin/vloop.mjs evidence check --require kit,unit >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-unit-${{ github.sha }}
+          path: .verification/
+          include-hidden-files: true
+          retention-days: 14
+
+  journey:
+    # Runs the user journey against a local copy of the app on the runner.
+    # No preview environment and no secrets are needed, so fork PRs work too.
+    if: github.event_name != 'deployment_status'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: demo/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Journey
+        env:
+          CI: 'true'
+          APP_REVISION: ${{ github.sha }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: node ../bin/vloop.mjs evidence run --check journey -- npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-journey-${{ github.sha }}
+          path: |
+            .verification/
+            demo/playwright-report/
+            demo/test-results/
+          include-hidden-files: true
+          retention-days: 14
+
+  preview-journey:
+    # Runs the same journey against a deployed preview when the hosting
+    # platform reports a successful deployment with a URL. If your platform
+    # does not send deployment_status events, or the preview needs a login,
+    # this job does nothing; the local journey above still runs.
+    # It checks out the deployed commit and asserts the app reports that
+    # revision, so a stale preview fails instead of passing.
+    if: >-
+      github.event_name == 'deployment_status' &&
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment_status.environment_url != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: demo
+      - run: npx playwright install --with-deps chromium
+        working-directory: demo
+      - name: Journey against preview
+        env:
+          CI: 'true'
+          BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          EXPECTED_REVISION: ${{ github.event.deployment.sha }}
+        working-directory: demo
+        run: node ../bin/vloop.mjs evidence run --check preview-journey --target "$BASE_URL" -- npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-preview-${{ github.event.deployment.sha }}
+          path: |
+            .verification/
+            demo/playwright-report/
+            demo/test-results/
+          include-hidden-files: true
+          retention-days: 14

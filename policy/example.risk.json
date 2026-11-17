@@ -1,0 +1,33 @@
+{
+  "$comment": "ILLUSTRATIVE. Tiers are checked top to bottom; a file takes the first tier it matches. Replace the paths and check names with your own after the audit. Check names are labels your CI and evidence ledger agree on, not commands.",
+  "tiers": [
+    {
+      "name": "policy",
+      "why": "Changes to the rules, the workflows that enforce them, or the tool that reads them. A change must not approve itself.",
+      "paths": [".github/workflows/**", ".github/CODEOWNERS", "CODEOWNERS", "policy/**", "bin/vloop.mjs", ".claude/settings.json", ".husky/**", "lefthook.yml"],
+      "requires": ["unit", "human-review"]
+    },
+    {
+      "name": "high",
+      "why": "Money, identity, permissions, data that is hard to restore, and contracts other people build on.",
+      "paths": ["**/auth/**", "**/billing/**", "**/payments/**", "**/permissions/**", "**/migrations/**", "**/*.sql", "api/public/**", "openapi.*"],
+      "requires": ["unit", "property", "journey", "human-review"]
+    },
+    {
+      "name": "user-facing",
+      "why": "Code a person sees or clicks through.",
+      "paths": ["demo/src/**", "src/**", "app/**", "web/**"],
+      "requires": ["unit", "journey"]
+    },
+    {
+      "name": "low",
+      "why": "Docs and examples that do not run in production.",
+      "paths": ["**/*.md", "docs/**", "examples/**", "prompts/**"],
+      "requires": ["docs-lint"]
+    }
+  ],
+  "default": {
+    "name": "standard",
+    "requires": ["unit"]
+  }
+}

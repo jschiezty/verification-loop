@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "REQUIRED_CHECKS=unit \"${CLAUDE_PROJECT_DIR}/examples/agent-hooks/require-evidence.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

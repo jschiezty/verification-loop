@@ -1,0 +1,68 @@
+#!/bin/sh
+# ILLUSTRATIVE pre-push hook. Fast local checks before code leaves the machine.
+#
+# Install by hand, after reading it:
+#   cp examples/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# or point Git at a tracked hooks directory:
+#   git config core.hooksPath .githooks
+# If you already use husky, lefthook or pre-commit, put the CHECKS below
+# into that tool instead of adding a second hook system.
+#
+# Each check is "name|required tool|command". A missing tool fails the push
+# with a message instead of silently skipping the check. To skip a check on
+# purpose, delete its line; to skip the hook once, `git push --no-verify`,
+# which is why CI must run the same checks again.
+#
+# Results are recorded with vloop when it is present, so an agent or a person
+# can later see which checks ran on which commit.
+
+set -u
+
+CHECKS='
+kit|node|node --test test/
+unit|node|node --test demo/test/
+'
+
+# Nothing to check when the push only deletes refs.
+pushing=0
+while read -r _ local_sha _ _; do
+  # A deleted ref arrives as an all-zero SHA; anything else is a real push.
+  case "$local_sha" in *[!0]*) pushing=1 ;; esac
+done
+[ "$pushing" -eq 1 ] || exit 0
+
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+if [ -n "$(git status --porcelain -- . ':(exclude).verification')" ]; then
+  echo "pre-push: note: uncommitted changes are present. The checks below run on the working tree, which is not exactly what you are pushing." >&2
+fi
+
+vloop=""
+[ -f bin/vloop.mjs ] && command -v node >/dev/null 2>&1 && vloop="node bin/vloop.mjs"
+
+failed=""
+# A here-document keeps the loop in this shell so $failed survives it.
+# Each command gets /dev/null as stdin so it cannot eat the check list.
+while IFS='|' read -r name tool cmd; do
+  [ -n "$name" ] || continue
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "pre-push: $name needs '$tool', which is not installed. Install it or remove the check on purpose." >&2
+    failed="$failed $name"
+    continue
+  fi
+  echo "pre-push: $name: $cmd" >&2
+  if [ -n "$vloop" ]; then
+    $vloop evidence run --check "$name" -- sh -c "$cmd" </dev/null || failed="$failed $name"
+  else
+    sh -c "$cmd" </dev/null || failed="$failed $name"
+  fi
+done <<CHECKLIST
+$CHECKS
+CHECKLIST
+
+if [ -n "$failed" ]; then
+  echo "pre-push: failed:$failed" >&2
+  exit 1
+fi
+echo "pre-push: all checks passed" >&2
