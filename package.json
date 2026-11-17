@@ -8,7 +8,7 @@
   "bin": { "vloop": "bin/vloop.mjs" },
   "engines": { "node": ">=18" },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "sync-skill": "cp prompts/1-audit.md prompts/2-implement.md prompts/3-handoff.md skill/verification-loop/references/ && cp bin/vloop.mjs skill/verification-loop/scripts/ && cp examples/github-actions/verify.yml .github/workflows/verify.yml",
     "lint": "shellcheck examples/hooks/pre-push examples/agent-hooks/require-evidence.sh && actionlint examples/github-actions/verify.yml"
   }

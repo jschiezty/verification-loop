@@ -22,9 +22,9 @@ cd verification-loop
 node bin/vloop.mjs scan /path/to/your/repo
 
 # 2. Watch tests catch seeded bugs
-node --test demo/test/                               # passes
-DEMO_BUG=float-total node --test demo/test/          # the property test on totals fails
-DEMO_BUG=duplicate-on-retry node --test demo/test/   # the idempotency property fails
+node --test demo/test/*.test.mjs                               # passes
+DEMO_BUG=float-total node --test demo/test/*.test.mjs          # the property test on totals fails
+DEMO_BUG=duplicate-on-retry node --test demo/test/*.test.mjs   # the idempotency property fails
 
 # 3. The user journey (needs Playwright; uses installed Chrome to skip the browser download)
 cd demo && npm install && PW_CHANNEL=chrome npx playwright test
@@ -32,7 +32,7 @@ DEMO_BUG=duplicate-on-retry PW_CHANNEL=chrome npx playwright test   # fails: a r
 cd ..
 
 # 4. Evidence tied to a commit
-node bin/vloop.mjs evidence run --check unit -- node --test demo/test/
+node bin/vloop.mjs evidence run --check unit -- node --test demo/test/*.test.mjs
 node bin/vloop.mjs evidence check --require unit     # pass at this commit
 # make a commit, then check again: the record is now stale and lists what changed
 ```

@@ -85,9 +85,9 @@ jobs:
         with:
           node-version: 22
       - name: Kit tests
-        run: node bin/vloop.mjs evidence run --check kit -- node --test test/
+        run: node bin/vloop.mjs evidence run --check kit -- node --test test/*.test.mjs
       - name: Demo unit and property tests
-        run: node bin/vloop.mjs evidence run --check unit -- node --test demo/test/
+        run: node bin/vloop.mjs evidence run --check unit -- node --test demo/test/*.test.mjs
       - name: Evidence summary
         if: always()
         run: node bin/vloop.mjs evidence check --require kit,unit >> "$GITHUB_STEP_SUMMARY" || true

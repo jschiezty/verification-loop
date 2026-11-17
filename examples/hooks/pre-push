@@ -19,8 +19,8 @@
 set -u
 
 CHECKS='
-kit|node|node --test test/
-unit|node|node --test demo/test/
+kit|node|node --test test/*.test.mjs
+unit|node|node --test demo/test/*.test.mjs
 '
 
 # Nothing to check when the push only deletes refs.
